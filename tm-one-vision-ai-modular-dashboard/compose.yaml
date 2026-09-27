@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-vision_ai}
+      POSTGRES_USER: ${POSTGRES_USER:-vision_ai_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-local-only}
+    ports: ["5432:5432"]
+    volumes: ["postgres_data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vision_ai_app} -d ${POSTGRES_DB:-vision_ai}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./apps/api
+    env_file: .env
+    ports: ["8000:8000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./apps/api:/app
+      - ./connectors/hikcentral-openapi/src:/opt/hcp-adapter
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  web:
+    build: ./apps/web
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000/api/v1}
+      VITE_AUTH_MODE: ${VITE_AUTH_MODE:-dev}
+    ports: ["5173:5173"]
+    depends_on: [api]
+    volumes:
+      - ./apps/web:/app
+      - /app/node_modules
+    command: npm run dev -- --host 0.0.0.0
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    profiles: ["identity"]
+    command: start-dev
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: change-local-only
+    ports: ["8080:8080"]
+
+volumes:
+  postgres_data:
